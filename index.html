@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanFrame — Remove AI Video Watermarks</title>
+  <meta name="description" content="Remove Gemini and Google Labs watermarks from AI-generated videos. 100% client-side processing, no upload needed.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+</head>
+<body>
+
+  <!-- FFmpeg Loading Overlay -->
+  <div id="ffmpeg-loader" class="loader-overlay">
+    <div class="loader-content">
+      <div class="loader-spinner">
+        <div class="spinner-ring"></div>
+        <div class="spinner-ring"></div>
+        <div class="spinner-ring"></div>
+      </div>
+      <h2>Initializing Video Engine</h2>
+      <p class="loader-subtitle">Loading FFmpeg WebAssembly module…</p>
+      <div class="loader-bar-track">
+        <div class="loader-bar-fill" id="loader-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-wrapper" id="app-wrapper" style="display:none;">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-icon">
+          <svg width="32" height="32" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="64" height="64" rx="14" fill="url(#logo-grad)"/>
+            <path d="M18 20h28v4H18zM18 28h28v8H18zM18 40h28v4H18z" fill="rgba(255,255,255,0.9)"/>
+            <circle cx="46" cy="18" r="10" fill="#ef4444"/>
+            <path d="M41 18l3 3 7-7" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            <defs><linearGradient id="logo-grad" x1="0" y1="0" x2="64" y2="64"><stop stop-color="#8b5cf6"/><stop offset="1" stop-color="#6366f1"/></linearGradient></defs>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <h1>CleanFrame</h1>
+          <span class="tagline">AI Video Watermark Remover</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <span class="badge badge-secure">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          100% Client-Side
+        </span>
+      </div>
+    </header>
+
+    <!-- Upload Section -->
+    <section id="upload-section" class="section fade-in">
+      <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Upload video file">
+        <div class="drop-zone-content">
+          <div class="upload-icon-wrapper">
+            <svg class="upload-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <h2>Drop your video here</h2>
+          <p class="drop-subtitle">or <span class="text-accent">click to browse</span> your files</p>
+          <p class="supported-formats">Supports MP4 · WebM · MOV · Up to 500MB</p>
+        </div>
+        <input type="file" id="file-input" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" hidden>
+      </div>
+    </section>
+
+    <!-- Editor Section -->
+    <section id="editor-section" class="section hidden">
+      <div class="editor-grid">
+
+        <!-- Preview Panel -->
+        <div class="preview-panel">
+          <div class="panel-header">
+            <h2>Video Preview</h2>
+            <span class="file-name" id="file-name"></span>
+          </div>
+          <div class="video-container" id="video-container">
+            <video id="video-preview" crossorigin="anonymous"></video>
+            <canvas id="selection-canvas"></canvas>
+            <div class="canvas-hint" id="canvas-hint">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+              Draw a rectangle to select the logo area
+            </div>
+          </div>
+          <div class="video-controls">
+            <button id="btn-play" class="btn btn-icon" title="Play / Pause">
+              <svg id="play-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <svg id="pause-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+            <input type="range" id="video-scrubber" class="scrubber" min="0" max="100" step="0.1" value="0">
+            <span class="time-display" id="time-display">0:00 / 0:00</span>
+          </div>
+          <div class="video-meta" id="video-meta"></div>
+        </div>
+
+        <!-- Controls Panel -->
+        <div class="controls-panel">
+
+          <div class="panel-block">
+            <h3>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              Smart Detection
+            </h3>
+            <p class="panel-desc">Automatically find the watermark using frame analysis</p>
+            <button id="btn-auto-detect" class="btn btn-auto-detect">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              Auto-Detect Logo
+            </button>
+            <div id="auto-detect-status" class="auto-detect-status hidden"></div>
+          </div>
+
+          <div class="panel-block">
+            <h3>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/></svg>
+              Preset Positions
+            </h3>
+            <p class="panel-desc">Or pick a corner manually</p>
+            <div class="preset-grid">
+              <button class="preset-btn" data-preset="top-left">
+                <span class="preset-indicator tl"></span>↖ Top Left
+              </button>
+              <button class="preset-btn" data-preset="top-right">
+                <span class="preset-indicator tr"></span>↗ Top Right
+              </button>
+              <button class="preset-btn" data-preset="bottom-left">
+                <span class="preset-indicator bl"></span>↙ Bottom Left
+              </button>
+              <button class="preset-btn active" data-preset="bottom-right">
+                <span class="preset-indicator br"></span>↘ Bottom Right
+              </button>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <h3>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V4h4M4 16v4h4M16 4h4v4M16 20h4v-4"/></svg>
+              Region Coordinates
+            </h3>
+            <p class="panel-desc">Fine-tune the selection area (pixels)</p>
+            <div class="coord-grid">
+              <div class="coord-field">
+                <label for="input-x">X</label>
+                <input type="number" id="input-x" min="0" value="0" class="coord-input">
+              </div>
+              <div class="coord-field">
+                <label for="input-y">Y</label>
+                <input type="number" id="input-y" min="0" value="0" class="coord-input">
+              </div>
+              <div class="coord-field">
+                <label for="input-w">W</label>
+                <input type="number" id="input-w" min="1" value="100" class="coord-input">
+              </div>
+              <div class="coord-field">
+                <label for="input-h">H</label>
+                <input type="number" id="input-h" min="1" value="50" class="coord-input">
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <h3>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Output Quality
+            </h3>
+            <div class="quality-selector">
+              <select id="quality-select" class="select-input">
+                <option value="16">Maximum (CRF 16) — Largest file</option>
+                <option value="18" selected>Near-Lossless (CRF 18) — Recommended</option>
+                <option value="23">Balanced (CRF 23)</option>
+                <option value="28">Compact (CRF 28) — Smaller file</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="action-buttons">
+            <button id="btn-process" class="btn btn-primary btn-lg">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg>
+              Remove Logo
+            </button>
+            <button id="btn-extract" class="btn btn-secondary btn-lg">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Extract Logo (HD PNG)
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- Processing Section -->
+    <section id="processing-section" class="section hidden">
+      <div class="processing-card">
+        <div class="processing-visual">
+          <div class="proc-ring-outer">
+            <div class="proc-ring-inner">
+              <span class="proc-percent" id="progress-percent">0%</span>
+            </div>
+          </div>
+        </div>
+        <h2 id="progress-message">Preparing video…</h2>
+        <p class="processing-sub" id="progress-sub">This may take a moment depending on video length</p>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-bar"></div>
+        </div>
+        <button id="btn-cancel" class="btn btn-ghost">Cancel Processing</button>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section id="results-section" class="section hidden">
+      <div class="results-header">
+        <div class="success-burst">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <h2>Processing Complete!</h2>
+        <p class="results-subtitle" id="results-subtitle"></p>
+      </div>
+
+      <div class="results-grid">
+        <!-- Clean Video Card -->
+        <div class="result-card" id="result-video-card">
+          <div class="result-card-header">
+            <h3>🎬 Clean Video</h3>
+            <span class="result-badge">Logo Removed</span>
+          </div>
+          <div class="result-preview-wrapper">
+            <video id="result-video" controls></video>
+          </div>
+          <div class="result-info" id="result-video-info"></div>
+          <button id="btn-download-video" class="btn btn-primary btn-block">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download Video
+          </button>
+        </div>
+
+        <!-- Extracted Logo Card -->
+        <div class="result-card" id="result-logo-card" style="display:none;">
+          <div class="result-card-header">
+            <h3>✂️ Extracted Logo</h3>
+            <span class="result-badge badge-logo">HD PNG</span>
+          </div>
+          <div class="result-preview-wrapper logo-preview">
+            <img id="result-logo" alt="Extracted logo in high quality">
+          </div>
+          <button id="btn-download-logo" class="btn btn-secondary btn-block">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download Logo PNG
+          </button>
+        </div>
+      </div>
+
+      <button id="btn-new" class="btn btn-ghost btn-center">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        Process Another Video
+      </button>
+    </section>
+
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
