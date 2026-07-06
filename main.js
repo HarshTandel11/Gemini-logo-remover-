@@ -967,7 +967,10 @@ async function processVideo() {
           isProcessing = false;
         } else if (status === 'failed') {
           clearInterval(pollInterval);
-          throw new Error(message || "Processing failed on server.");
+          alert('Processing failed on server: ' + (message || "Unknown error"));
+          showSection('editor');
+          isProcessing = false;
+          return;
         }
       } catch (pollErr) {
         console.error("Polling error:", pollErr);

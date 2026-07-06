@@ -32,9 +32,29 @@ class RAFTTracker:
         if self.model is None:
             raise RuntimeError("RAFT model not loaded. Call load() first.")
 
+        # Original dimensions
+        h_orig, w_orig = frame1.shape[:2]
+
+        # Calculate target size (max dimension 512 to prevent CUDA OOM on high resolutions)
+        max_dim = 512
+        if max(h_orig, w_orig) > max_dim:
+            scale = max_dim / max(h_orig, w_orig)
+            w_target = int(w_orig * scale)
+            h_target = int(h_orig * scale)
+        else:
+            w_target, h_target = w_orig, h_orig
+            scale = 1.0
+
+        # Resize frames
+        if scale != 1.0:
+            f1_resized = cv2.resize(frame1, (w_target, h_target), interpolation=cv2.INTER_AREA)
+            f2_resized = cv2.resize(frame2, (w_target, h_target), interpolation=cv2.INTER_AREA)
+        else:
+            f1_resized, f2_resized = frame1, frame2
+
         # Convert to tensor and scale to [0, 1]
-        t1 = torch.from_numpy(cv2.cvtColor(frame1, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).float() / 255.0
-        t2 = torch.from_numpy(cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).float() / 255.0
+        t1 = torch.from_numpy(cv2.cvtColor(f1_resized, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).float() / 255.0
+        t2 = torch.from_numpy(cv2.cvtColor(f2_resized, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).float() / 255.0
 
         # Normalise to [-1, 1] (RAFT expectation)
         t1 = (t1 - 0.5) * 2.0
@@ -57,13 +77,22 @@ class RAFTTracker:
             flow_predictions = self.model(t1, t2)
             flow = flow_predictions[-1]
 
-            # Crop back to original dimensions if padded
+            # Crop back to target dimensions if padded
             if pad_h > 0 or pad_w > 0:
                 flow = flow[..., :h, :w]
 
             # Move to CPU and format as numpy
             flow_np = flow[0].permute(1, 2, 0).cpu().numpy()
-            return flow_np
+
+            # Upscale flow field back to original size
+            if scale != 1.0:
+                flow_upscaled = cv2.resize(flow_np, (w_orig, h_orig), interpolation=cv2.INTER_LINEAR)
+                # Scale displacement values back to original pixel coordinates
+                flow_upscaled[..., 0] *= (w_orig / w_target)
+                flow_upscaled[..., 1] *= (h_orig / h_target)
+                return flow_upscaled
+            else:
+                return flow_np
 
     def compute_all_flows(self, frames: list[np.ndarray]) -> list[np.ndarray]:
         """
