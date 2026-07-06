@@ -22,3 +22,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Backend & Python
+__pycache__/
+*.py[cod]
+*$py.class
+backend/models/
+backend/temp/
+backend/uploads/
+backend/outputs/
+backend/third_party/
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/

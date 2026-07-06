@@ -135,39 +135,10 @@ async function cleanupVFS() {
 // ══════════════════════════════════════════════════════════════════
 
 async function initFFmpeg() {
-  ffmpeg = new FFmpeg();
-
-  ffmpeg.on('log', ({ message }) => {
-    console.log('[ffmpeg]', message);
-  });
-
-  ffmpeg.on('progress', ({ progress }) => {
-    if (isProcessing && progress > 0) {
-      const pct = Math.min(Math.round(progress * 100), 100);
-      // Only update if we're in the encoding phase
-      if (progressMessage.textContent.includes('Encoding')) {
-        updateProgress(85 + Math.round(pct * 0.12), 'Encoding video…');
-      }
-    }
-  });
-
-  try {
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-    });
-
-    ffmpegLoaded = true;
-    loader.classList.add('loaded');
-    appWrapper.style.display = '';
-    setTimeout(() => (loader.style.display = 'none'), 600);
-  } catch (err) {
-    console.error('FFmpeg load error:', err);
-    loader.querySelector('h2').textContent = 'Failed to Load';
-    loader.querySelector('.loader-subtitle').textContent =
-      'Could not load the video engine. Please refresh and try again.';
-  }
+  ffmpegLoaded = true;
+  loader.classList.add('loaded');
+  appWrapper.style.display = '';
+  setTimeout(() => (loader.style.display = 'none'), 600);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -260,121 +231,38 @@ function updateProgress(pct, message, sub) {
 // ══════════════════════════════════════════════════════════════════
 
 async function autoDetectLogo() {
-  if (!videoMeta.width || !videoMeta.height) return;
+  if (!videoFile) return;
 
   const statusEl = autoDetectStatus;
-  statusEl.textContent = '🔍 Analyzing video frames…';
+  statusEl.textContent = '🔍 Analyzing video on GPU…';
   statusEl.className = 'auto-detect-status';
   if (btnAutoDetect) { btnAutoDetect.disabled = true; btnAutoDetect.textContent = '⏳ Detecting…'; }
 
   try {
-    const w = videoMeta.width, h = videoMeta.height, dur = videoMeta.duration;
-    const numFrames = 5;
-    const frameTimes = Array.from({ length: numFrames }, (_, i) =>
-      Math.min((dur * (i + 1)) / (numFrames + 1), dur - 0.1)
-    );
+    const formData = new FormData();
+    formData.append('file', videoFile);
 
-    statusEl.textContent = '🔍 Capturing frames for analysis…';
+    const response = await fetch('/api/detect-logo', {
+      method: 'POST',
+      body: formData
+    });
 
-    // Capture full frames
-    const frames = [];
-    for (const t of frameTimes) {
-      await seekVideo(t);
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(videoPreview, 0, 0, w, h);
-      frames.push(ctx.getImageData(0, 0, w, h));
+    if (!response.ok) {
+      throw new Error(await response.text());
     }
 
-    if (frames.length < 3) throw new Error('Not enough frames captured');
+    const bbox = await response.json();
+    region = { x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h };
+    syncInputsFromRegion();
+    drawOverlay();
+    clearActivePresets();
 
-    statusEl.textContent = '🔍 Scanning corners for watermark…';
-
-    // Analyze each corner region
-    const cornerFrac = 0.22;
-    const cw = Math.round(w * cornerFrac), ch = Math.round(h * cornerFrac);
-    const corners = [
-      { name: 'bottom-right', preset: 'bottom-right', sx: w - cw, sy: h - ch, ew: w, eh: h },
-      { name: 'bottom-left', preset: 'bottom-left', sx: 0, sy: h - ch, ew: cw, eh: h },
-      { name: 'top-right', preset: 'top-right', sx: w - cw, sy: 0, ew: w, eh: ch },
-      { name: 'top-left', preset: 'top-left', sx: 0, sy: 0, ew: cw, eh: ch },
-    ];
-
-    const STATIC_THRESH = 18;
-    let bestCorner = null, bestBBox = null, bestRatio = 0;
-
-    for (const corner of corners) {
-      const rw = corner.ew - corner.sx, rh = corner.eh - corner.sy;
-      let staticCount = 0, minX = rw, minY = rh, maxX = 0, maxY = 0;
-
-      for (let ly = 0; ly < rh; ly++) {
-        for (let lx = 0; lx < rw; lx++) {
-          const gx = corner.sx + lx, gy = corner.sy + ly;
-          const pi = (gy * w + gx) * 4;
-          let maxDiff = 0;
-          for (let f = 1; f < frames.length; f++) {
-            maxDiff = Math.max(maxDiff,
-              Math.abs(frames[f].data[pi] - frames[0].data[pi]),
-              Math.abs(frames[f].data[pi + 1] - frames[0].data[pi + 1]),
-              Math.abs(frames[f].data[pi + 2] - frames[0].data[pi + 2])
-            );
-          }
-          if (maxDiff < STATIC_THRESH) {
-            staticCount++;
-            if (lx < minX) minX = lx;
-            if (ly < minY) minY = ly;
-            if (lx > maxX) maxX = lx;
-            if (ly > maxY) maxY = ly;
-          }
-        }
-      }
-
-      const ratio = staticCount / (rw * rh);
-      console.log(`[detect] ${corner.name}: ${(ratio * 100).toFixed(1)}% static`);
-
-      if (ratio > 0.02 && ratio < 0.45 && ratio > bestRatio) {
-        const pad = Math.round(Math.min(w, h) * 0.015);
-        const bx = Math.max(0, corner.sx + minX - pad);
-        const by = Math.max(0, corner.sy + minY - pad);
-        const bw = Math.min(maxX - minX + 2 * pad, w - bx);
-        const bh = Math.min(maxY - minY + 2 * pad, h - by);
-        if (bw > 10 && bh > 10) {
-          bestRatio = ratio;
-          bestCorner = corner;
-          bestBBox = { x: bx, y: by, w: bw, h: bh };
-        }
-      }
-    }
-
-    if (bestBBox && bestCorner) {
-      region = bestBBox;
-      syncInputsFromRegion();
-      drawOverlay();
-      document.querySelectorAll('.preset-btn').forEach((b) => b.classList.remove('active'));
-      const btn = document.querySelector(`.preset-btn[data-preset="${bestCorner.preset}"]`);
-      if (btn) btn.classList.add('active');
-
-      statusEl.textContent = `✅ Watermark found — ${bestCorner.name} (${bestBBox.w}×${bestBBox.h}px)`;
-      statusEl.className = 'auto-detect-status success';
-      // Now create the precise pixel mask within this region
-      statusEl.textContent += ' — Creating removal mask…';
-      logoMask = await createLogoMask(frames);
-      const maskPixels = logoMask.reduce((s, v) => s + v, 0);
-      statusEl.textContent = `✅ Watermark locked — ${bestCorner.name} (${maskPixels} logo pixels detected)`;
-    } else {
-      applyPreset('bottom-right');
-      logoMask = generateSparkleMask(region.w, region.h);
-      statusEl.textContent = '⚠️ Auto-detect inconclusive — using default (bottom-right) + sparkle shape mask.';
-      statusEl.className = 'auto-detect-status warning';
-    }
-
-    videoPreview.currentTime = 0;
+    statusEl.textContent = `✅ Watermark detected — (${region.w}×${region.h}px at x=${region.x}, y=${region.y})`;
+    statusEl.className = 'auto-detect-status success';
   } catch (err) {
     console.error('Auto-detect error:', err);
     applyPreset('bottom-right');
-    logoMask = generateSparkleMask(region.w, region.h);
-    statusEl.textContent = '⚠️ Detection failed — using defaults.';
+    statusEl.textContent = '⚠️ Auto-detection failed — using default bottom-right preset.';
     statusEl.className = 'auto-detect-status warning';
   } finally {
     if (btnAutoDetect) {
@@ -1012,164 +900,86 @@ function inpaintFrame(ctx, mask, regionBox, fixedOffset = null, prevInpaintData 
 }
 
 
-async function processVideo() {
-  if (!ffmpegLoaded || !videoFile || isProcessing) return;
-  if (region.w < 4 || region.h < 4) {
-    alert('Please select a valid logo region.');
-    return;
-  }
+let pollInterval = null;
 
-  // Ensure we have a mask (dilate it slightly more to cover any glow/trace halos)
-  if (!logoMask || logoMask.length !== region.w * region.h) {
-    logoMask = generateSparkleMask(region.w, region.h);
-  }
-  
-  // Dilate the mask by 1 extra pixel for safety to catch transparent anti-aliasing edges
-  logoMask = morphDilate(logoMask, region.w, region.h, 1);
+async function processVideo() {
+  if (!videoFile || isProcessing) return;
 
   isProcessing = true;
   cancelRequested = false;
   showSection('processing');
-  updateProgress(0, 'Preparing…', 'Setting up the processing pipeline');
+  updateProgress(0, 'Uploading video…', 'Sending video file to background GPU worker');
 
   try {
-    const fps = videoMeta.fps;
-    const totalFrames = Math.ceil(videoMeta.duration * fps);
-    const estTime = Math.round(totalFrames * 0.12); // ~120ms per frame for high-quality PNG pipeline
-    updateProgress(2, 'Preparing…', `~${totalFrames} frames at ${fps}fps · Est. ${estTime}s`);
+    const formData = new FormData();
+    formData.append('file', videoFile);
 
-    // ── Step 1: Write input and extract audio ──
-    updateProgress(3, 'Loading video into memory…');
-    const inputData = await fetchFile(videoFile);
-    await ffmpeg.writeFile('input.mp4', inputData);
-
-    let hasAudio = false;
-    try {
-      updateProgress(4, 'Extracting audio track…');
-      await ffmpeg.exec(['-i', 'input.mp4', '-vn', '-c:a', 'aac', '-y', 'audio.aac']);
-      const audioData = await ffmpeg.readFile('audio.aac');
-      hasAudio = audioData.length > 100;
-      console.log(`[process] Audio extracted: ${hasAudio} (${audioData.length} bytes)`);
-    } catch (e) {
-      console.log('[process] No audio track or extraction failed:', e.message);
+    // Build URL with optional crop coordinates if region has been changed
+    let uploadUrl = '/api/upload';
+    if (region.w > 4 && region.h > 4) {
+      uploadUrl += `?x=${region.x}&y=${region.y}&w=${region.w}&h=${region.h}`;
     }
 
-    // ── Step 2: Process frames ──
-    updateProgress(5, 'Processing frames…', 'Removing watermark from each frame');
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      body: formData
+    });
 
-    const workCanvas = document.createElement('canvas');
-    workCanvas.width = videoMeta.width;
-    workCanvas.height = videoMeta.height;
-    const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
 
-    // Pause video for seeking
-    videoPreview.pause();
-    let frameIndex = 0;
-    let fixedOffset = null;
-    let prevInpaintData = null;
+    const result = await response.json();
+    const jobId = result.job_id;
 
-    for (let i = 0; i < totalFrames; i++) {
-      if (cancelRequested) throw new Error('Cancelled by user');
+    updateProgress(2, 'In queue…', 'Waiting for GPU slot');
 
-      const t = i / fps;
-      if (t > videoMeta.duration) break;
-
-      // Seek and capture frame
-      await seekVideo(t);
-      workCtx.drawImage(videoPreview, 0, 0, videoMeta.width, videoMeta.height);
-
-      // Apply inpainting on the logo region with temporal stability parameters
-      const result = inpaintFrame(workCtx, logoMask, region, fixedOffset, prevInpaintData);
-
-      // Lock offset calculated on the very first frame to maintain spatial alignment across frames
-      if (i === 0 && result && result.found) {
-        fixedOffset = { dx: result.dx, dy: result.dy };
-        console.log(`[process] Temporal Lock: locked texture displacement offset to x=${fixedOffset.dx}, y=${fixedOffset.dy}`);
+    // Poll status every 2 seconds
+    pollInterval = setInterval(async () => {
+      if (cancelRequested) {
+        clearInterval(pollInterval);
+        return;
       }
 
-      // Keep feedback buffer of solved colors
-      prevInpaintData = result;
+      try {
+        const statusRes = await fetch(`/api/status/${jobId}`);
+        if (!statusRes.ok) throw new Error("Status query failed");
 
-      // Export as LOSSLESS PNG to preserve After Effects grade clarity
-      const blob = await canvasToBlobAsync(workCanvas, 'image/png');
-      const frameData = new Uint8Array(await blob.arrayBuffer());
-      const frameName = `frame_${String(frameIndex).padStart(6, '0')}.png`;
-      await ffmpeg.writeFile(frameName, frameData);
-      frameIndex++;      // Update progress (5% to 82% for frame processing)
-      const pct = 5 + Math.round((i / totalFrames) * 77);
-      if (i % 5 === 0 || i === totalFrames - 1) {
-        updateProgress(pct, `Processing frame ${i + 1} / ${totalFrames}`,
-          `Content-Aware Filling · ${Math.round((i / totalFrames) * 100)}% done`);
+        const statusData = await statusRes.json();
+        const { status, progress, stage, message } = statusData;
+
+        if (status === 'queued') {
+          updateProgress(2, 'In queue…', message);
+        } else if (status === 'processing') {
+          // Map backend progress (0-1) to UI progress
+          const pct = Math.round(progress * 100);
+          updateProgress(pct, `Stage: ${stage}`, message);
+        } else if (status === 'completed') {
+          clearInterval(pollInterval);
+          updateProgress(100, 'Finalizing download…', 'Fetching output video');
+
+          // Download clean video
+          const downloadRes = await fetch(`/api/download/${jobId}`);
+          if (!downloadRes.ok) throw new Error("Video download failed");
+          const videoBlob = await downloadRes.blob();
+
+          showResults(videoBlob, null);
+          isProcessing = false;
+        } else if (status === 'failed') {
+          clearInterval(pollInterval);
+          throw new Error(message || "Processing failed on server.");
+        }
+      } catch (pollErr) {
+        console.error("Polling error:", pollErr);
       }
-    }
-
-    const processedFrames = frameIndex;
-    console.log(`[process] Processed ${processedFrames} frames`);
-
-    // ── Step 3: Encode video from frames ──
-    updateProgress(83, 'Encoding video…', 'Compressing to MP4 at maximum clarity');
-
-    // Force ultra-high quality CRF for lossless PNG inputs
-    // CRF 10 is visual-lossless (production-grade), CRF 16 is super-high quality
-    let crf = qualitySelect.value;
-    if (crf === '16' || crf === '18') {
-      crf = '12'; // Upgrade Maximum and Near-Lossless to extreme clarity
-    }
-
-    const encodeArgs = [
-      '-framerate', String(fps),
-      '-i', 'frame_%06d.png',
-    ];
-    if (hasAudio) {
-      encodeArgs.push('-i', 'audio.aac');
-      encodeArgs.push('-map', '0:v', '-map', '1:a');
-    }
-    encodeArgs.push(
-      '-c:v', 'libx264',
-      '-pix_fmt', 'yuv420p',
-      '-crf', crf,
-      '-preset', 'slow', // slow preset creates significantly cleaner encodes
-      '-movflags', '+faststart',
-    );
-    if (hasAudio) {
-      encodeArgs.push('-c:a', 'aac', '-b:a', '256k'); // 256k audio
-    }
-    encodeArgs.push('-y', 'output.mp4');
-
-    console.log('[process] Encoding:', encodeArgs.join(' '));
-    await ffmpeg.exec(encodeArgs);
-
-    // ── Step 4: Read output ──
-    updateProgress(97, 'Finalizing…');
-    const outputData = await ffmpeg.readFile('output.mp4');
-
-    if (outputData.length < 5000) {
-      throw new Error('Output file is suspiciously small — encoding may have failed.');
-    }
-
-    const videoBlob = new Blob([outputData], { type: 'video/mp4' });
-    console.log(`[process] Output video: ${formatSize(videoBlob.size)}`);
-
-    // ── Step 5: Cleanup VFS ──
-    await cleanupVFS();
-    for (let i = 0; i < processedFrames; i++) {
-      try { await ffmpeg.deleteFile(`frame_${String(i).padStart(6, '0')}.png`); } catch {}
-    }
-
-    showResults(videoBlob, null);
+    }, 2000);
 
   } catch (err) {
     console.error('Processing error:', err);
-    if (cancelRequested) {
-      showSection('editor');
-    } else {
-      alert('Processing failed: ' + (err.message || String(err)));
-      showSection('editor');
-    }
-    await cleanupVFS();
-  } finally {
+    if (pollInterval) clearInterval(pollInterval);
+    alert('Processing failed: ' + (err.message || String(err)));
+    showSection('editor');
     isProcessing = false;
-    cancelRequested = false;
   }
 }
 
@@ -1178,39 +988,35 @@ async function processVideo() {
 // ══════════════════════════════════════════════════════════════════
 
 async function extractLogo() {
-  if (!ffmpegLoaded || !videoFile) return;
-  if (region.w < 4 || region.h < 4) { alert('Select a valid logo region.'); return; }
+  if (!videoFile || isProcessing) return;
 
   isProcessing = true;
   showSection('processing');
-  updateProgress(0, 'Extracting logo…');
+  updateProgress(20, 'Uploading video…', 'Extracting logo region in HD');
 
   try {
-    updateProgress(10, 'Loading video…');
-    const inputData = await fetchFile(videoFile);
-    await ffmpeg.writeFile('input.mp4', inputData);
+    const formData = new FormData();
+    formData.append('file', videoFile);
 
-    const seekTime = videoPreview.currentTime || 1;
+    let extractUrl = '/api/extract';
+    if (region.w > 4 && region.h > 4) {
+      extractUrl += `?x=${region.x}&y=${region.y}&w=${region.w}&h=${region.h}`;
+    }
 
-    updateProgress(40, 'Cropping logo region…');
-    await ffmpeg.exec([
-      '-ss', seekTime.toFixed(2),
-      '-i', 'input.mp4',
-      '-vf', `crop=${region.w}:${region.h}:${region.x}:${region.y}`,
-      '-frames:v', '1',
-      '-y', 'logo.png',
-    ]);
+    const response = await fetch(extractUrl, {
+      method: 'POST',
+      body: formData
+    });
 
-    updateProgress(90, 'Reading output…');
-    const logoData = await ffmpeg.readFile('logo.png');
-    const logoBlob = new Blob([logoData], { type: 'image/png' });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
 
-    await cleanupVFS();
+    const logoBlob = await response.blob();
     showResults(null, logoBlob);
   } catch (err) {
     console.error('Logo extraction error:', err);
     alert('Logo extraction failed: ' + (err.message || String(err)));
-    await cleanupVFS();
     showSection('editor');
   } finally {
     isProcessing = false;
