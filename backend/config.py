@@ -48,6 +48,7 @@ PROPAINTER_DIR: Path = BASE_DIR / "third_party" / "ProPainter"
 
 # ── DiffuEraser ───────────────────────────────────────────────────────────────
 DIFFUERASER_DIR: Path = BASE_DIR / "third_party" / "DiffuEraser"
+DIFFUERASER_ENABLED: bool = False
 
 # ── Pipeline parameters ──────────────────────────────────────────────────────
 MASK_DILATION_PX: int = 8
