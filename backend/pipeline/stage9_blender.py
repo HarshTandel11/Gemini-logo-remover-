@@ -7,7 +7,7 @@ transitions at the mask boundary by blending at multiple frequency bands.
 """
 
 import logging
-from typing import List, Tuple
+from typing import List
 
 import cv2
 import numpy as np

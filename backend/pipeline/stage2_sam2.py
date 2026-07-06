@@ -1,9 +1,6 @@
-import os
-import gc
 import logging
 import cv2
 import numpy as np
-import torch
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -38,12 +35,18 @@ class SAM2Segmenter:
         """
         Download SAM2 checkpoint if missing.
         """
-        import urllib.request
+        import shutil
+        from huggingface_hub import hf_hub_download
+        
         checkpoint_dir = Path(self.config.SAM2_CHECKPOINT).parent
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        url = "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2.1_hiera_small.pt"
-        logger.info(f"Downloading SAM2.1 Hiera Small checkpoint from {url}...")
-        urllib.request.urlretrieve(url, self.config.SAM2_CHECKPOINT)
+        
+        logger.info(f"Downloading SAM2.1 Hiera Small checkpoint from HuggingFace...")
+        
+        # Download directly to the huggingface cache and copy to our models dir
+        downloaded_path = hf_hub_download(repo_id="facebook/sam2.1-hiera-small", filename="sam2.1_hiera_small.pt")
+        shutil.copy2(downloaded_path, self.config.SAM2_CHECKPOINT)
+        
         logger.info("SAM2.1 checkpoint downloaded successfully.")
 
     def detect_logo_region(self, first_frame: np.ndarray) -> tuple[int, int, int, int]:

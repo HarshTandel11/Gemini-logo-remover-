@@ -1,7 +1,6 @@
 import logging
 import cv2
 import numpy as np
-from pathlib import Path
 from scenedetect import detect, ContentDetector
 
 logger = logging.getLogger(__name__)

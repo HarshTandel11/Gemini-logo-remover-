@@ -82,7 +82,7 @@ class GPUManager:
         return {
             "allocated_mb": torch.cuda.memory_allocated() / 1024**2,
             "reserved_mb": torch.cuda.memory_reserved() / 1024**2,
-            "total_mb": torch.cuda.get_device_properties(0).total_mem / 1024**2,
+            "total_mb": torch.cuda.get_device_properties(0).total_memory / 1024**2,
         }
 
     def log_memory(self, label: str = "") -> None:

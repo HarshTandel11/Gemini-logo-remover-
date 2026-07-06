@@ -9,7 +9,7 @@ and **0** = background, unless otherwise noted.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import List, Sequence, Tuple
 
 import cv2
 import numpy as np

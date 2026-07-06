@@ -1,7 +1,6 @@
 import logging
 import cv2
 import numpy as np
-from scipy import ndimage
 
 logger = logging.getLogger(__name__)
 

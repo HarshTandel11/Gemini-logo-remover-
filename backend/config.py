@@ -5,7 +5,6 @@ Centralises all constants, paths, model settings, and pipeline parameters
 so that every other module imports from a single source of truth.
 """
 
-import os
 import logging
 
 import torch
@@ -38,7 +37,7 @@ DTYPE: torch.dtype = torch.float16 if DEVICE == "cuda" else torch.float32
 logger.info("Device: %s  |  dtype: %s", DEVICE, DTYPE)
 
 # ── SAM2 ──────────────────────────────────────────────────────────────────────
-SAM2_MODEL_CFG: str = "sam2.1_hiera_s.yaml"
+SAM2_MODEL_CFG: str = "configs/sam2.1/sam2.1_hiera_s.yaml"
 SAM2_CHECKPOINT: str = str(MODEL_DIR / "sam2.1_hiera_small.pt")
 
 # ── LaMa ──────────────────────────────────────────────────────────────────────

@@ -229,6 +229,30 @@ class SDXLInpainter:
 
         return result_bgr
 
+    def inpaint_batch(
+        self,
+        frames: list[np.ndarray],
+        masks: list[np.ndarray],
+        prompt: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
+    ) -> list[np.ndarray]:
+        """Inpaint a batch of frames using the SDXL pipeline."""
+        if not self._enabled:
+            return frames
+
+        if self._pipeline is None:
+            raise RuntimeError("SDXL pipeline not loaded. Call load() first.")
+
+        single_mask = len(masks) == 1
+        results = []
+        for idx, frame in enumerate(frames):
+            mask = masks[0] if single_mask else masks[idx]
+            result = self.inpaint_frame(
+                frame, mask, prompt=prompt, negative_prompt=negative_prompt
+            )
+            results.append(result)
+        return results
+
     def unload(self) -> None:
         """Unload the SDXL pipeline and free GPU memory."""
         if self._pipeline is not None:

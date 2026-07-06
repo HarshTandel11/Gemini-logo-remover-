@@ -78,27 +78,86 @@ class ProPainterInpainter:
                 f"ProPainter inference script not found: {self._inference_script}"
             )
 
-        # Check weights directory
-        if not self._weights_dir.is_dir():
-            raise FileNotFoundError(
-                f"ProPainter weights directory not found: {self._weights_dir}. "
-                f"Download weights and place them in {self._weights_dir}/"
-            )
+        # Check weights directory and auto-download if missing
+        self._weights_dir.mkdir(parents=True, exist_ok=True)
+        
+        required_weights = [
+            "raft-things.pth",
+            "recurrent_flow_completion.pth",
+            "ProPainter.pth"
+        ]
+        
+        import shutil
+        from huggingface_hub import hf_hub_download
+        
+        for weight_name in required_weights:
+            weight_path = self._weights_dir / weight_name
+            if not weight_path.exists():
+                logger.info(f"Downloading ProPainter weight {weight_name} from HuggingFace...")
+                try:
+                    downloaded_path = hf_hub_download(repo_id="sczhou/ProPainter", filename=f"weights/{weight_name}")
+                    shutil.copy2(downloaded_path, weight_path)
+                    logger.info(f"Successfully downloaded {weight_name}.")
+                except Exception as e:
+                    logger.error(f"Failed to download {weight_name}: {e}")
+                    raise FileNotFoundError(f"Could not download {weight_name}. Please download manually to {self._weights_dir}")
 
-        # Verify at least some weight files exist
         weight_files = list(self._weights_dir.glob("*.pth")) + list(
             self._weights_dir.glob("*.pt")
         )
-        if not weight_files:
-            raise FileNotFoundError(
-                f"No model weight files (.pth/.pt) found in {self._weights_dir}. "
-                f"Please download ProPainter weights."
-            )
 
         logger.info(
             "ProPainter verified: %d weight files found.", len(weight_files)
         )
         self._loaded = True
+
+    def inpaint_batch(
+        self,
+        frames: List[np.ndarray],
+        masks: List[np.ndarray],
+        height: int = 480,
+        width: int = 854,
+        fp16: bool = True,
+        neighbor_length: int = 10,
+        subvideo_length: int = 80,
+    ) -> List[np.ndarray]:
+        """Run ProPainter inpainting on a list of in-memory frames and masks."""
+        import tempfile
+        import shutil
+
+        # Create temporary working directories
+        temp_dir = Path(tempfile.mkdtemp())
+        frames_dir = temp_dir / "frames"
+        masks_dir = temp_dir / "masks"
+        output_dir = temp_dir / "output"
+
+        try:
+            # Save frames
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            for idx, frame in enumerate(frames):
+                cv2.imwrite(str(frames_dir / f"{idx:06d}.png"), frame)
+
+            # Save masks
+            masks_dir.mkdir(parents=True, exist_ok=True)
+            single_mask = len(masks) == 1
+            for idx, frame in enumerate(frames):
+                mask = masks[0] if single_mask else masks[idx]
+                cv2.imwrite(str(masks_dir / f"{idx:06d}.png"), mask)
+
+            # Run inpainting
+            return self.inpaint_video(
+                frames_dir=str(frames_dir),
+                masks_dir=str(masks_dir),
+                output_dir=str(output_dir),
+                height=height,
+                width=width,
+                fp16=fp16,
+                neighbor_length=neighbor_length,
+                subvideo_length=subvideo_length,
+            )
+        finally:
+            # Clean up temp directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def inpaint_video(
         self,

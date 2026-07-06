@@ -114,10 +114,10 @@ def _decode_video(video_path: Path) -> List[np.ndarray]:
 
 
 def _save_frames_to_dir(frames: List[np.ndarray], directory: Path) -> None:
-    """Write *frames* as sequentially-numbered PNGs inside *directory*."""
+    """Write *frames* as sequentially-numbered JPEGs inside *directory*."""
     directory.mkdir(parents=True, exist_ok=True)
     for i, frame in enumerate(frames):
-        cv2.imwrite(str(directory / f"{i:06d}.png"), frame)
+        cv2.imwrite(str(directory / f"{i:06d}.jpg"), frame)
 
 
 # ── Orchestrator ─────────────────────────────────────────────────────────────
