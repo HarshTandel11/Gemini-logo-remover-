@@ -141,8 +141,16 @@ class SAM2Segmenter:
         # We collect all binary masks frame-by-frame
         masks = {}
         for frame_idx, obj_ids, mask_logits in self.predictor.propagate_in_video(inference_state):
-            # mask_logits is of shape [1, H, W]
-            mask = (mask_logits[0] > 0.0).cpu().numpy().astype(np.uint8) * 255
+            # mask_logits can have shape [num_objects, 1, H, W] or [num_objects, H, W]
+            mask_bool = (mask_logits > 0.0).cpu().numpy()
+            # Extract first object's mask
+            mask = mask_bool[0].astype(np.uint8) * 255
+            # Ensure it is 2D (H, W) by removing any leading single-dimensional channels
+            while mask.ndim > 2:
+                if mask.shape[0] == 1:
+                    mask = mask[0]
+                else:
+                    break
             masks[frame_idx] = mask
             
         # Cleanup state
