@@ -441,7 +441,8 @@ class PipelineOrchestrator:
             refined_masks = refiner.refine_masks(masks)
             self._report("mask_refinement", 0.4, "Masks refined.")
 
-            motion_types = refiner.classify_motion(refined_masks, flows)
+            motion_type = refiner.classify_motion(refined_masks, flows)
+            motion_types = [motion_type] * len(refined_masks)
             self._report("mask_refinement", 0.7, f"Motion classified: {set(motion_types)}")
 
             dilated_masks = refiner.create_dilated_masks(
@@ -619,9 +620,14 @@ class PipelineOrchestrator:
         try:
             from backend.pipeline.stage8_fresco import FRESCOEnhancer
 
+            # FRESCO expects len(flows) == len(frames), where the last flow is None
+            flows_forward = list(flows)
+            if len(flows_forward) < len(frames):
+                flows_forward.extend([None] * (len(frames) - len(flows_forward)))
+
             enhancer = FRESCOEnhancer()
             with self._gpu.stage("fresco"):
-                result = enhancer.enhance(frames, masks, flows)
+                result = enhancer.enhance(frames, masks, flows_forward)
             return result
 
         except ImportError:

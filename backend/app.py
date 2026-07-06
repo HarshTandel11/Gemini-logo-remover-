@@ -311,4 +311,4 @@ async def detect_logo_endpoint(file: UploadFile = File(...)):
 if __name__ == "__main__":
     import uvicorn
     # Make sure app runs on 0.0.0.0:8000 or config-defined port
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.app:app", host="0.0.0.0", port=8000, reload=True)
