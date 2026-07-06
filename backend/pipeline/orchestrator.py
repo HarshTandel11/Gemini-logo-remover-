@@ -281,7 +281,7 @@ class PipelineOrchestrator:
 
             # ── Stage 8: FRESCO Temporal Enhancement ──────────────────────
             self._report("temporal_enhancement", 0.0, "Enhancing temporal coherence…")
-            enhanced = self._run_fresco(refined, flows)
+            enhanced = self._run_fresco(refined, dilated_masks, flows)
             self._report("temporal_enhancement", 1.0, "Temporal enhancement complete.")
 
             # ── Stage 9: Laplacian Blending ───────────────────────────────
@@ -612,6 +612,7 @@ class PipelineOrchestrator:
     def _run_fresco(
         self,
         frames: List[np.ndarray],
+        masks: List[np.ndarray],
         flows: List[np.ndarray],
     ) -> List[np.ndarray]:
         """Stage 8: FRESCO temporal consistency enhancement."""
@@ -620,11 +621,7 @@ class PipelineOrchestrator:
 
             enhancer = FRESCOEnhancer()
             with self._gpu.stage("fresco"):
-                enhancer.load()
-                try:
-                    result = enhancer.enhance(frames, flows)
-                finally:
-                    enhancer.unload()
+                result = enhancer.enhance(frames, masks, flows)
             return result
 
         except ImportError:
