@@ -559,7 +559,7 @@ class PipelineOrchestrator:
         masks: List[np.ndarray],
     ) -> Tuple[List[np.ndarray], float]:
         """Stage 6: DiffuEraser refinement with confidence scoring."""
-        if not getattr(self.config, "DIFFUERASER_ENABLED", False):
+        if not getattr(config, "DIFFUERASER_ENABLED", False):
             logger.info("DiffuEraser refinement is disabled in config. Skipping.")
             return inpainted, 1.0
 
